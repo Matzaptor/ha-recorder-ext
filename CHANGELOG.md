@@ -7,6 +7,36 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.5.0] — 2026-10-10
+
+### Added
+
+- **`Recording problem` binary sensor and a Repairs issue for failing writes.** A database that
+  rejected every write used to be invisible: the *Recording* sensor only reflects that the flush
+  loop is alive, and `last_flush` advanced even when a transaction committed nothing (this is how
+  the PyMySQL 1.2 incompatibility fixed in 2.4.11 went unnoticed). The coordinator now tracks write
+  health, and after 3 consecutive failed flushes by default (about 90 s at the default flush
+  interval) the new diagnostic `binary_sensor` (`problem` device class) turns on and a *Repairs* issue is raised.
+  Both clear automatically on the first successful flush. A flush counts as failed only when
+  nothing was stored (begin/commit error, or every snapshot of the batch failed), so a few
+  individually rejected observations do not latch the problem.
+  Attributes: `consecutive_failed_flushes`, `failed_snapshots_total`, `dropped_snapshots_total`,
+  `last_error_type`, `last_error_at`, `last_successful_write`, `queue_size`. Only the exception
+  class name is exposed, never the message (database errors can contain host names or queries).
+- Diagnostics now include the same write-health fields.
+- New option **Failed flushes before alert** (`failed_flush_threshold`, default 3, range 1-20) in
+  the options flow. The threshold counts flushes while the flush interval is configurable, so the
+  alert delay is this value times the flush interval.
+
+### Changed
+
+- The coordinator now notifies its entities after every flush, so the *Recording* sensor
+  attributes (`queue_size`, `last_flush`) are refreshed instead of staying at their last
+  import/stop value.
+- Snapshots discarded because the queue is full are now counted (`dropped_snapshots_total`)
+  instead of only being logged.
+- `quality_scale.yaml`: `repair-issues`, `entity-category` and `entity-device-class` are now `done`.
+
 ## [2.4.11] — 2026-10-10
 
 ### Fixed
