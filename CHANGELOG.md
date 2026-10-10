@@ -7,6 +7,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.4.11] — 2026-10-10
+
+### Fixed
+
+- **MySQL/MariaDB backend failed on every write with `TypeError: 'str' object is not callable`
+  after PyMySQL 1.2.** PyMySQL 1.2 replaced `converters.escape_bytes_prefixed` with a placeholder
+  string, but `aiomysql` still calls it to escape any `bytes` query parameter. The backend passed
+  every UUID (`BINARY(16)` columns) as raw `bytes`, so `get_or_create_entity` and all following
+  queries failed. UUIDs are now passed as 32-character hex strings and converted server-side with
+  `UNHEX(%s)`, which yields the same 16 bytes. No schema change and no migration: existing data is
+  matched and written exactly as before. Reads are unchanged. Only the MySQL backend is affected.
+
 ## [2.4.10] — 2026-08-31
 
 ### Fixed
