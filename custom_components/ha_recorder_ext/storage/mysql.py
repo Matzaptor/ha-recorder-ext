@@ -94,10 +94,10 @@ _SQL_INSERT_SCHEMA_VERSION = "INSERT INTO schema_version (version) VALUES (%s)"
 _SQL_UPDATE_SCHEMA_VERSION = "UPDATE schema_version SET version = %s"
 
 _SQL_SELECT_ENTITY = "SELECT id FROM entities WHERE entity_id = %s"
-_SQL_UPDATE_ENTITY_LAST_SEEN = "UPDATE entities SET last_seen = %s WHERE id = %s"
+_SQL_UPDATE_ENTITY_LAST_SEEN = "UPDATE entities SET last_seen = %s WHERE id = UNHEX(%s)"
 _SQL_INSERT_ENTITY = (
     "INSERT IGNORE INTO entities (id, entity_id, domain, first_seen, last_seen) "
-    "VALUES (%s, %s, %s, %s, %s)"
+    "VALUES (UNHEX(%s), %s, %s, %s, %s)"
 )
 
 _SQL_SELECT_LATEST_OBS = """
@@ -106,7 +106,7 @@ SELECT id, entity_pk, field, value_type,
        value_datetime, value_date, value_time, value_json,
        first_seen, last_seen
 FROM observations
-WHERE entity_pk = %s AND field = %s
+WHERE entity_pk = UNHEX(%s) AND field = %s
 ORDER BY last_seen DESC
 LIMIT 1
 """
@@ -117,14 +117,14 @@ INSERT INTO observations (
     value_str, value_int, value_float, value_bool,
     value_datetime, value_date, value_time, value_json,
     first_seen, last_seen
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+) VALUES (UNHEX(%s), UNHEX(%s), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
-_SQL_UPDATE_OBS_LAST_SEEN = "UPDATE observations SET last_seen = %s WHERE id = %s"
+_SQL_UPDATE_OBS_LAST_SEEN = "UPDATE observations SET last_seen = %s WHERE id = UNHEX(%s)"
 
 _SQL_HAS_OBS_IN_RANGE = """
 SELECT 1 FROM observations
-WHERE entity_pk = %s AND field = %s
+WHERE entity_pk = UNHEX(%s) AND field = %s
   AND first_seen <= %s
   AND last_seen  >= %s
 LIMIT 1
@@ -168,8 +168,14 @@ _MigrationFn = Callable[[aiomysql.Connection], Awaitable[None]]
 _MIGRATIONS: dict[int, _MigrationFn] = {2: _migrate_to_v2}
 
 
-def _to_blob(u: uuid.UUID) -> bytes:
-    return u.bytes
+def _to_blob(u: uuid.UUID) -> str:
+    """Return the UUID as a 32-char hex string, to be wrapped in UNHEX(%s).
+
+    Raw `bytes` query parameters are deliberately avoided: PyMySQL >= 1.2
+    replaced `escape_bytes_prefixed` with a placeholder string, so aiomysql
+    crashes with "'str' object is not callable" when escaping any bytes value.
+    """
+    return u.hex
 
 
 def _from_blob(b: bytes) -> uuid.UUID:

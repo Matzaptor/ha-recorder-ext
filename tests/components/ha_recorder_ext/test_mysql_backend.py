@@ -685,8 +685,8 @@ class TestMySQLBackend:
 
         insert_calls = [c for c in cur.execute.call_args_list if "INSERT INTO observations" in c.args[0]]
         params = insert_calls[0].args[1]
-        assert params[0] == obs.id.bytes         # id as BINARY(16)
-        assert params[1] == entity_pk.bytes      # entity_pk as BINARY(16)
+        assert params[0] == obs.id.hex         # id as hex for UNHEX()
+        assert params[1] == entity_pk.hex      # entity_pk as hex for UNHEX()
 
     async def test_insert_observation_formats_timestamps_as_utc_iso(self) -> None:
         cur, conn, pool, aiomysql_mock = _default_mocks()
@@ -738,7 +738,7 @@ class TestMySQLBackend:
         assert len(update_calls) == 1
         params = update_calls[0].args[1]
         assert params[0] == "2026-05-06T11:00:00+00:00"  # formatted ts
-        assert params[1] == obs_id.bytes                  # BINARY(16)
+        assert params[1] == obs_id.hex                  # hex for UNHEX()
 
     # ------------------------------------------------------------------
     # Observations: has_observations_in_range
@@ -787,7 +787,7 @@ class TestMySQLBackend:
         range_calls = [c for c in cur.execute.call_args_list if "first_seen" in c.args[0]]
         assert len(range_calls) == 1
         params = range_calls[0].args[1]
-        assert params[0] == entity_pk.bytes
+        assert params[0] == entity_pk.hex
         assert params[1] == "state"
         assert params[2] == _mysql_module._fmt(end)    # end comes before start
         assert params[3] == _mysql_module._fmt(start)
