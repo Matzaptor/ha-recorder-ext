@@ -10,6 +10,8 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ha_recorder_ext.const import (
+    CONF_FAILED_FLUSH_THRESHOLD,
+    DEFAULT_FAILED_FLUSH_THRESHOLD,
     CONF_DB_HOST,
     CONF_DB_NAME,
     CONF_DB_PASSWORD,
@@ -785,3 +787,49 @@ async def test_reconfigure_server_blank_password_keeps_existing(
     # Left blank on purpose: the original password must survive, not be
     # overwritten with an empty string.
     assert entry.data[CONF_DB_PASSWORD] == "secret"
+
+
+async def test_options_flow_shows_default_failed_flush_threshold(
+    hass: HomeAssistant,
+) -> None:
+    entry = _entry_with_options(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    keys = {k.schema: k.default() for k in result["data_schema"].schema}
+    assert keys[CONF_FAILED_FLUSH_THRESHOLD] == DEFAULT_FAILED_FLUSH_THRESHOLD
+
+
+async def test_options_flow_saves_failed_flush_threshold(hass: HomeAssistant) -> None:
+    entry = _entry_with_options(hass)
+
+    with patch("custom_components.ha_recorder_ext.create_backend") as mock_factory:
+        backend = AsyncMock()
+        backend.get_latest_observation.return_value = None
+        backend.get_or_create_entity.return_value = uuid.uuid4()
+        mock_factory.return_value = backend
+
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={CONF_FAILED_FLUSH_THRESHOLD: 7},
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_FAILED_FLUSH_THRESHOLD] == 7
+    assert entry.runtime_data.failed_flush_threshold == 7
+
+
+@pytest.mark.parametrize("value", [0, 21])
+async def test_options_flow_rejects_failed_flush_threshold_out_of_range(
+    hass: HomeAssistant, value: int
+) -> None:
+    entry = _entry_with_options(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    with pytest.raises(Exception):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={CONF_FAILED_FLUSH_THRESHOLD: value},
+        )

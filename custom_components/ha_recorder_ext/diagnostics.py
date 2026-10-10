@@ -11,8 +11,10 @@ from .const import (
     CONF_EXCLUDE_ATTRIBUTES,
     CONF_EXCLUDE_DOMAINS,
     CONF_EXCLUDE_ENTITIES,
+    CONF_FAILED_FLUSH_THRESHOLD,
     CONF_FLUSH_INTERVAL,
     CONF_QUEUE_MAX_SIZE,
+    DEFAULT_FAILED_FLUSH_THRESHOLD,
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_QUEUE_MAX_SIZE,
 )
@@ -38,6 +40,9 @@ async def async_get_config_entry_diagnostics(
             ),
             CONF_QUEUE_MAX_SIZE: entry.options.get(
                 CONF_QUEUE_MAX_SIZE, DEFAULT_QUEUE_MAX_SIZE
+            ),
+            CONF_FAILED_FLUSH_THRESHOLD: entry.options.get(
+                CONF_FAILED_FLUSH_THRESHOLD, DEFAULT_FAILED_FLUSH_THRESHOLD
             ),
         },
         "coordinator": {

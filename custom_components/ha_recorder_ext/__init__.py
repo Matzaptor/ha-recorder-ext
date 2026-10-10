@@ -27,15 +27,16 @@ from .const import (
     CONF_EXCLUDE_ATTRIBUTES,
     CONF_EXCLUDE_DOMAINS,
     CONF_EXCLUDE_ENTITIES,
+    CONF_FAILED_FLUSH_THRESHOLD,
     CONF_FLUSH_INTERVAL,
     CONF_QUEUE_MAX_SIZE,
     DB_TYPE_MYSQL,
     DB_TYPE_POSTGRESQL,
     DB_TYPE_SQLITE,
+    DEFAULT_FAILED_FLUSH_THRESHOLD,
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_QUEUE_MAX_SIZE,
     DOMAIN,
-    FAILED_FLUSH_THRESHOLD,
     ISSUE_RECORDING_FAILING,
     SERVICE_IMPORT_FROM_EXTERNAL_DB,
     SERVICE_IMPORT_FROM_RECORDER,
@@ -285,6 +286,9 @@ class RecorderCoordinator:
         opts = options or {}
         self._flush_interval: int = opts.get(CONF_FLUSH_INTERVAL, DEFAULT_FLUSH_INTERVAL)
         queue_max: int = opts.get(CONF_QUEUE_MAX_SIZE, DEFAULT_QUEUE_MAX_SIZE)
+        self._failed_flush_threshold: int = opts.get(
+            CONF_FAILED_FLUSH_THRESHOLD, DEFAULT_FAILED_FLUSH_THRESHOLD
+        )
 
         self._queue: asyncio.Queue[_StateSnapshot] = asyncio.Queue(maxsize=queue_max)
         self._flush_task: asyncio.Task | None = None
@@ -396,8 +400,12 @@ class RecorderCoordinator:
         return self._last_error_at
 
     @property
+    def failed_flush_threshold(self) -> int:
+        return self._failed_flush_threshold
+
+    @property
     def has_write_problem(self) -> bool:
-        return self._consecutive_failed_flushes >= FAILED_FLUSH_THRESHOLD
+        return self._consecutive_failed_flushes >= self._failed_flush_threshold
 
     @property
     def flush_interval(self) -> int:

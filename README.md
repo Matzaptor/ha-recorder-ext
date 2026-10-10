@@ -78,6 +78,7 @@ Home Assistant's built-in recorder stores raw events. This integration stores **
 |---|---|---|---|
 | Flush interval | Seconds between buffer flushes to the database | `30` | 5–300 |
 | Queue size limit | Max observations buffered in memory before dropping | `10000` | 100–100 000 |
+| Failed flushes before alert | Consecutive failed flushes after which *Recording problem* turns on and a Repairs issue is raised (delay = this value × flush interval) | `3` | 1–20 |
 | Exclude domains | Override the setup-time domain filter | _(from setup)_ | |
 | Exclude entities | Override the setup-time entity filter | _(from setup)_ | |
 | Exclude attributes | Override the setup-time attribute filter | _(from setup)_ | |
@@ -171,7 +172,7 @@ The integration creates three binary sensors alongside the config entry.
 |---|---|---|
 | **Recording** | The background flush loop is running | `queue_size`, `last_flush`, `flush_interval_seconds` |
 | **Import in progress** | An `import_from_recorder` or `import_from_external_db` service call is currently running | `last_import_intervals_inserted` (once at least one import has completed) |
-| **Recording problem** | Writing to the database has failed for 3 consecutive flushes (diagnostic entity, `problem` device class) | `consecutive_failed_flushes`, `failed_snapshots_total`, `dropped_snapshots_total`, `last_error_type`, `last_error_at`, `last_successful_write`, `queue_size` |
+| **Recording problem** | Writing to the database has failed for the configured number of consecutive flushes, 3 by default (diagnostic entity, `problem` device class) | `consecutive_failed_flushes`, `failed_snapshots_total`, `dropped_snapshots_total`, `last_error_type`, `last_error_at`, `last_successful_write`, `queue_size` |
 
 **Recording** only tells you the flush loop is alive, not that data is being stored. Use **Recording problem** to be alerted when the database is unreachable or rejecting writes.
 
@@ -179,7 +180,7 @@ The integration creates three binary sensors alongside the config entry.
 
 A flush counts as *failed* when nothing was stored: the transaction could not be started or committed, or every observation in the batch failed. A few individually rejected observations (for example one entity whose value the database refuses) do not count as a failed flush; they only increase `failed_snapshots_total`.
 
-- **Recording problem** turns on after 3 consecutive failed flushes (about 90 seconds at the default 30 s flush interval) and turns off again on the first successful flush.
+- **Recording problem** turns on after **Failed flushes before alert** consecutive failed flushes (option, default 3, so about 90 seconds at the default 30 s flush interval) and turns off again on the first successful flush.
 - At the same time a **Repairs** issue (*Settings → System → Repairs*) is raised, and removed automatically once writes succeed again.
 - `last_error_type` holds only the exception class name (for example `OperationalError`), never the message, because database error messages can contain host names or queries. The full error is in the Home Assistant log.
 - Observations of a failed flush are lost when the transaction cannot be committed; if the transaction cannot even be started they stay in the queue for the next cycle, and are dropped once the queue is full (counted in `dropped_snapshots_total`). Use `import_from_recorder` to fill gaps afterwards.
@@ -215,6 +216,7 @@ The integration exposes diagnostics data under **Settings → Devices & Services
 | `config` | `exclude_attributes` | Attributes excluded from logging |
 | `options` | `flush_interval` | Flush interval in seconds |
 | `options` | `queue_max_size` | Maximum queue depth |
+| `options` | `failed_flush_threshold` | Failed flushes before the problem sensor turns on |
 | `coordinator` | `is_running` | Whether the background loop is active |
 | `coordinator` | `queue_size` | Current number of buffered observations |
 | `coordinator` | `flush_interval` | Effective flush interval |

@@ -14,9 +14,11 @@ from custom_components.ha_recorder_ext.const import (
     CONF_EXCLUDE_ATTRIBUTES,
     CONF_EXCLUDE_DOMAINS,
     CONF_EXCLUDE_ENTITIES,
+    CONF_FAILED_FLUSH_THRESHOLD,
     CONF_FLUSH_INTERVAL,
     CONF_QUEUE_MAX_SIZE,
     DB_TYPE_SQLITE,
+    DEFAULT_FAILED_FLUSH_THRESHOLD,
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_QUEUE_MAX_SIZE,
     DOMAIN,
@@ -81,6 +83,9 @@ async def test_diagnostics_returns_default_options(hass: HomeAssistant) -> None:
 
     assert diag["options"][CONF_FLUSH_INTERVAL] == DEFAULT_FLUSH_INTERVAL
     assert diag["options"][CONF_QUEUE_MAX_SIZE] == DEFAULT_QUEUE_MAX_SIZE
+    assert (
+        diag["options"][CONF_FAILED_FLUSH_THRESHOLD] == DEFAULT_FAILED_FLUSH_THRESHOLD
+    )
 
 
 async def test_diagnostics_returns_saved_options(hass: HomeAssistant) -> None:

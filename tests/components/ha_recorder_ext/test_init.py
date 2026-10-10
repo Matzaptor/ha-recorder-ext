@@ -17,12 +17,13 @@ from custom_components.ha_recorder_ext.const import (
     CONF_EXCLUDE_ATTRIBUTES,
     CONF_EXCLUDE_DOMAINS,
     CONF_EXCLUDE_ENTITIES,
+    CONF_FAILED_FLUSH_THRESHOLD,
     CONF_FLUSH_INTERVAL,
     CONF_QUEUE_MAX_SIZE,
     DB_TYPE_MYSQL,
     DB_TYPE_SQLITE,
     DOMAIN,
-    FAILED_FLUSH_THRESHOLD,
+    DEFAULT_FAILED_FLUSH_THRESHOLD,
     ISSUE_RECORDING_FAILING,
     SERVICE_IMPORT_FROM_EXTERNAL_DB,
     SERVICE_IMPORT_FROM_RECORDER,
@@ -711,7 +712,7 @@ class TestFlushHealth:
         backend.get_or_create_entity.side_effect = RuntimeError("boom")
         coordinator = await self._setup(hass, backend)
 
-        for _ in range(FAILED_FLUSH_THRESHOLD):
+        for _ in range(DEFAULT_FAILED_FLUSH_THRESHOLD):
             await self._flush_with(coordinator)
 
         assert coordinator.has_write_problem
@@ -726,7 +727,7 @@ class TestFlushHealth:
         backend = _mock_backend()
         backend.get_or_create_entity.side_effect = RuntimeError("boom")
         coordinator = await self._setup(hass, backend)
-        for _ in range(FAILED_FLUSH_THRESHOLD):
+        for _ in range(DEFAULT_FAILED_FLUSH_THRESHOLD):
             await self._flush_with(coordinator)
         assert coordinator.has_write_problem
 
@@ -831,10 +832,48 @@ class TestFlushHealth:
         backend = _mock_backend()
         backend.get_or_create_entity.side_effect = RuntimeError("boom")
         coordinator = await self._setup(hass, backend)
-        for _ in range(FAILED_FLUSH_THRESHOLD):
+        for _ in range(DEFAULT_FAILED_FLUSH_THRESHOLD):
             await self._flush_with(coordinator)
         assert self._issue(hass) is not None
 
         await coordinator.stop()
 
         assert self._issue(hass) is None
+
+
+    async def test_threshold_is_configurable_through_options(
+        self, hass: HomeAssistant
+    ) -> None:
+        backend = _mock_backend()
+        backend.get_or_create_entity.side_effect = RuntimeError("boom")
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                CONF_DB_TYPE: DB_TYPE_SQLITE,
+                CONF_DB_PATH: "test.db",
+                CONF_EXCLUDE_DOMAINS: [],
+                CONF_EXCLUDE_ENTITIES: [],
+                CONF_EXCLUDE_ATTRIBUTES: [],
+            },
+            options={CONF_FAILED_FLUSH_THRESHOLD: 1},
+        )
+        entry.add_to_hass(hass)
+        with patch(
+            "custom_components.ha_recorder_ext.create_backend",
+            return_value=backend,
+        ):
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+        coordinator = entry.runtime_data
+
+        assert coordinator.failed_flush_threshold == 1
+        await self._flush_with(coordinator)
+
+        assert coordinator.has_write_problem
+        assert self._issue(hass) is not None
+
+    async def test_default_threshold_when_option_missing(
+        self, hass: HomeAssistant
+    ) -> None:
+        coordinator = await self._setup(hass, _mock_backend())
+        assert coordinator.failed_flush_threshold == DEFAULT_FAILED_FLUSH_THRESHOLD
