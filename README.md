@@ -165,12 +165,42 @@ If the queue fills up before a flush, new observations are dropped and a warning
 
 ## Entities
 
-The integration creates two binary sensors alongside the config entry.
+The integration creates three binary sensors alongside the config entry.
 
 | Entity | On when | Attributes |
 |---|---|---|
 | **Recording** | The background flush loop is running | `queue_size`, `last_flush`, `flush_interval_seconds` |
 | **Import in progress** | An `import_from_recorder` or `import_from_external_db` service call is currently running | `last_import_intervals_inserted` (once at least one import has completed) |
+| **Recording problem** | Writing to the database has failed for 3 consecutive flushes (diagnostic entity, `problem` device class) | `consecutive_failed_flushes`, `failed_snapshots_total`, `dropped_snapshots_total`, `last_error_type`, `last_error_at`, `last_successful_write`, `queue_size` |
+
+**Recording** only tells you the flush loop is alive, not that data is being stored. Use **Recording problem** to be alerted when the database is unreachable or rejecting writes.
+
+### Write health
+
+A flush counts as *failed* when nothing was stored: the transaction could not be started or committed, or every observation in the batch failed. A few individually rejected observations (for example one entity whose value the database refuses) do not count as a failed flush; they only increase `failed_snapshots_total`.
+
+- **Recording problem** turns on after 3 consecutive failed flushes (about 90 seconds at the default 30 s flush interval) and turns off again on the first successful flush.
+- At the same time a **Repairs** issue (*Settings → System → Repairs*) is raised, and removed automatically once writes succeed again.
+- `last_error_type` holds only the exception class name (for example `OperationalError`), never the message, because database error messages can contain host names or queries. The full error is in the Home Assistant log.
+- Observations of a failed flush are lost when the transaction cannot be committed; if the transaction cannot even be started they stay in the queue for the next cycle, and are dropped once the queue is full (counted in `dropped_snapshots_total`). Use `import_from_recorder` to fill gaps afterwards.
+
+Example automation:
+
+```yaml
+automation:
+  - alias: "Notify when the external recorder cannot write"
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.ha_external_recorder_recording_problem
+        to: "on"
+    actions:
+      - action: notify.notify
+        data:
+          title: "HA External Recorder"
+          message: >
+            Writes are failing
+            ({{ state_attr('binary_sensor.ha_external_recorder_recording_problem', 'last_error_type') }}).
+```
 
 ## Diagnostics
 
@@ -189,6 +219,13 @@ The integration exposes diagnostics data under **Settings → Devices & Services
 | `coordinator` | `queue_size` | Current number of buffered observations |
 | `coordinator` | `flush_interval` | Effective flush interval |
 | `coordinator` | `last_flush` | UTC ISO 8601 timestamp of last successful flush, or `null` |
+| `coordinator` | `last_successful_write` | UTC ISO 8601 timestamp of the last flush that stored at least one observation, or `null` |
+| `coordinator` | `has_write_problem` | Whether the *Recording problem* sensor is on |
+| `coordinator` | `consecutive_failed_flushes` | Failed flushes in a row (resets on success) |
+| `coordinator` | `failed_snapshots_total` | Observations that could not be stored since startup |
+| `coordinator` | `dropped_snapshots_total` | Observations discarded since startup because the queue was full |
+| `coordinator` | `last_error_type` | Exception class of the last write error, or `null` |
+| `coordinator` | `last_error_at` | UTC ISO 8601 timestamp of the last write error, or `null` |
 
 ## Development setup
 
