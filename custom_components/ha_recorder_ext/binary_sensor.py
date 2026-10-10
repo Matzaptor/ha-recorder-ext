@@ -103,8 +103,8 @@ class ImportProgressSensor(_CoordinatorBinarySensor):
 class RecordingProblemSensor(_CoordinatorBinarySensor):
     """Binary sensor: True while observations cannot be written to the database.
 
-    Turns on after FAILED_FLUSH_THRESHOLD consecutive failed flushes and turns
-    off again on the first successful one. A flush is failed when nothing was
+    Turns on after the configured number of consecutive failed flushes
+    (option ``failed_flush_threshold``, default 3) and turns off again on the first successful one. A flush is failed when nothing was
     stored (begin/commit error, or every snapshot in the batch failed).
     """
 

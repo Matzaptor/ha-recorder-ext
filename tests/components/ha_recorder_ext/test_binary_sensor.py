@@ -15,7 +15,7 @@ from custom_components.ha_recorder_ext.const import (
     CONF_DB_TYPE,
     DB_TYPE_SQLITE,
     DOMAIN,
-    FAILED_FLUSH_THRESHOLD,
+    DEFAULT_FAILED_FLUSH_THRESHOLD,
 )
 
 _ENTITY_RECORDING = "binary_sensor.ha_external_recorder_recording"
@@ -173,12 +173,12 @@ class TestRecordingProblemSensor:
         await _setup(hass, entry)
         coordinator: RecorderCoordinator = entry.runtime_data
 
-        await self._fail_flushes(coordinator, FAILED_FLUSH_THRESHOLD - 1)
+        await self._fail_flushes(coordinator, DEFAULT_FAILED_FLUSH_THRESHOLD - 1)
         await hass.async_block_till_done()
 
         state = hass.states.get(_ENTITY_PROBLEM)
         assert state.state == "off"
-        assert state.attributes["consecutive_failed_flushes"] == FAILED_FLUSH_THRESHOLD - 1
+        assert state.attributes["consecutive_failed_flushes"] == DEFAULT_FAILED_FLUSH_THRESHOLD - 1
 
     async def test_turns_on_at_threshold_with_attributes(
         self, hass: HomeAssistant
@@ -187,14 +187,14 @@ class TestRecordingProblemSensor:
         await _setup(hass, entry)
         coordinator: RecorderCoordinator = entry.runtime_data
 
-        await self._fail_flushes(coordinator, FAILED_FLUSH_THRESHOLD)
+        await self._fail_flushes(coordinator, DEFAULT_FAILED_FLUSH_THRESHOLD)
         await hass.async_block_till_done()
 
         state = hass.states.get(_ENTITY_PROBLEM)
         assert state.state == "on"
         attrs = state.attributes
         assert attrs["last_error_type"] == "RuntimeError"
-        assert attrs["failed_snapshots_total"] == FAILED_FLUSH_THRESHOLD
+        assert attrs["failed_snapshots_total"] == DEFAULT_FAILED_FLUSH_THRESHOLD
         assert attrs["last_error_at"] is not None
         assert attrs["last_successful_write"] is None
 
@@ -206,7 +206,7 @@ class TestRecordingProblemSensor:
         entry = _make_entry(hass)
         await _setup(hass, entry)
         coordinator: RecorderCoordinator = entry.runtime_data
-        await self._fail_flushes(coordinator, FAILED_FLUSH_THRESHOLD)
+        await self._fail_flushes(coordinator, DEFAULT_FAILED_FLUSH_THRESHOLD)
 
         coordinator.backend.get_or_create_entity.side_effect = None
         coordinator.backend.get_or_create_entity.return_value = uuid.uuid4()

@@ -26,6 +26,7 @@ from .const import (
     CONF_EXCLUDE_ATTRIBUTES,
     CONF_EXCLUDE_DOMAINS,
     CONF_EXCLUDE_ENTITIES,
+    CONF_FAILED_FLUSH_THRESHOLD,
     CONF_FLUSH_INTERVAL,
     CONF_QUEUE_MAX_SIZE,
     DB_TYPE_DUCKDB,
@@ -38,6 +39,7 @@ from .const import (
     DEFAULT_DB_PATH,
     DEFAULT_DB_TYPE,
     DEFAULT_DUCKDB_PATH,
+    DEFAULT_FAILED_FLUSH_THRESHOLD,
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_MYSQL_PORT,
     DEFAULT_POSTGRESQL_PORT,
@@ -307,6 +309,7 @@ class HaRecorderExtOptionsFlow(config_entries.OptionsFlowWithReload):
             new_options: dict[str, Any] = {
                 CONF_FLUSH_INTERVAL: user_input[CONF_FLUSH_INTERVAL],
                 CONF_QUEUE_MAX_SIZE: user_input[CONF_QUEUE_MAX_SIZE],
+                CONF_FAILED_FLUSH_THRESHOLD: user_input[CONF_FAILED_FLUSH_THRESHOLD],
             }
             # The form promises "leave empty to keep the current setting" for
             # each exclude field. An empty list is still a present key, so
@@ -343,6 +346,12 @@ class HaRecorderExtOptionsFlow(config_entries.OptionsFlowWithReload):
                         CONF_QUEUE_MAX_SIZE,
                         default=opts.get(CONF_QUEUE_MAX_SIZE, DEFAULT_QUEUE_MAX_SIZE),
                     ): vol.All(int, vol.Range(min=100, max=100_000)),
+                    vol.Optional(
+                        CONF_FAILED_FLUSH_THRESHOLD,
+                        default=opts.get(
+                            CONF_FAILED_FLUSH_THRESHOLD, DEFAULT_FAILED_FLUSH_THRESHOLD
+                        ),
+                    ): vol.All(int, vol.Range(min=1, max=20)),
                     vol.Optional(
                         CONF_EXCLUDE_DOMAINS,
                         default=_effective(CONF_EXCLUDE_DOMAINS),
