@@ -168,7 +168,7 @@ _MigrationFn = Callable[[aiomysql.Connection], Awaitable[None]]
 _MIGRATIONS: dict[int, _MigrationFn] = {2: _migrate_to_v2}
 
 
-def _to_blob(u: uuid.UUID) -> str:
+def _uuid_param(u: uuid.UUID) -> str:
     """Return the UUID as a 32-char hex string, to be wrapped in UNHEX(%s).
 
     Raw `bytes` query parameters are deliberately avoided: PyMySQL >= 1.2
@@ -475,14 +475,14 @@ class MySQLBackend(StorageBackend):
 
         if row is not None:
             pk = _from_blob(bytes(row[0]))
-            await self._execute(_SQL_UPDATE_ENTITY_LAST_SEEN, (ts_str, _to_blob(pk)))
+            await self._execute(_SQL_UPDATE_ENTITY_LAST_SEEN, (ts_str, _uuid_param(pk)))
             return pk
 
         from .uuid7 import uuid7
         pk = uuid7()
         await self._execute(
             _SQL_INSERT_ENTITY,
-            (_to_blob(pk), entity_id, domain, ts_str, ts_str),
+            (_uuid_param(pk), entity_id, domain, ts_str, ts_str),
         )
         # A race on INSERT IGNORE means another worker inserted first; fetch the winner.
         row = await self._fetchone(_SQL_SELECT_ENTITY, (entity_id,))
@@ -497,7 +497,7 @@ class MySQLBackend(StorageBackend):
         self, entity_pk: uuid.UUID, field_name: str
     ) -> ObservationRecord | None:
         row = await self._fetchone(
-            _SQL_SELECT_LATEST_OBS, (_to_blob(entity_pk), field_name)
+            _SQL_SELECT_LATEST_OBS, (_uuid_param(entity_pk), field_name)
         )
         return _row_to_record(row) if row is not None else None
 
@@ -505,8 +505,8 @@ class MySQLBackend(StorageBackend):
         await self._execute(
             _SQL_INSERT_OBS,
             (
-                _to_blob(obs.id),
-                _to_blob(obs.entity_pk),
+                _uuid_param(obs.id),
+                _uuid_param(obs.entity_pk),
                 obs.field_name,
                 obs.value_type,
                 obs.value_str,
@@ -524,7 +524,7 @@ class MySQLBackend(StorageBackend):
 
     async def update_last_seen(self, obs_id: uuid.UUID, ts: datetime) -> None:
         await self._execute(
-            _SQL_UPDATE_OBS_LAST_SEEN, (_fmt(ts), _to_blob(obs_id))
+            _SQL_UPDATE_OBS_LAST_SEEN, (_fmt(ts), _uuid_param(obs_id))
         )
 
     async def has_observations_in_range(
@@ -536,7 +536,7 @@ class MySQLBackend(StorageBackend):
     ) -> bool:
         row = await self._fetchone(
             _SQL_HAS_OBS_IN_RANGE,
-            (_to_blob(entity_pk), field_name, _fmt(end), _fmt(start)),
+            (_uuid_param(entity_pk), field_name, _fmt(end), _fmt(start)),
         )
         return row is not None
 

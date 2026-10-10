@@ -925,7 +925,7 @@ class TestMySQLBackend:
         conn.rollback.assert_called_once()
 
     # ------------------------------------------------------------------
-    # Helper functions (_fmt, _to_blob, _from_blob)
+    # Helper functions (_fmt, _uuid_param, _from_blob)
     # ------------------------------------------------------------------
 
     def test_fmt_naive_datetime_treated_as_utc(self) -> None:
@@ -944,11 +944,15 @@ class TestMySQLBackend:
         result = _mysql_module._fmt(TS)
         assert result == TS_STR
 
-    def test_uuid_blob_roundtrip(self) -> None:
+    def test_uuid_param_roundtrip(self) -> None:
         u = uuid7()
-        assert _mysql_module._from_blob(_mysql_module._to_blob(u)) == u
+        param = _mysql_module._uuid_param(u)
+        assert _mysql_module._from_blob(bytes.fromhex(param)) == u
 
-    def test_to_blob_returns_16_bytes(self) -> None:
-        blob = _mysql_module._to_blob(uuid7())
-        assert isinstance(blob, bytes)
-        assert len(blob) == 16
+    def test_uuid_param_is_32_char_hex_string(self) -> None:
+        # Must be a str: raw bytes params crash aiomysql with PyMySQL >= 1.2.
+        u = uuid7()
+        param = _mysql_module._uuid_param(u)
+        assert isinstance(param, str)
+        assert len(param) == 32
+        assert bytes.fromhex(param) == u.bytes
