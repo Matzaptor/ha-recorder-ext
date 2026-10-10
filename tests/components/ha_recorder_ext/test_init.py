@@ -8,6 +8,7 @@ import pytest
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ha_recorder_ext.const import (
@@ -21,6 +22,8 @@ from custom_components.ha_recorder_ext.const import (
     DB_TYPE_MYSQL,
     DB_TYPE_SQLITE,
     DOMAIN,
+    FAILED_FLUSH_THRESHOLD,
+    ISSUE_RECORDING_FAILING,
     SERVICE_IMPORT_FROM_EXTERNAL_DB,
     SERVICE_IMPORT_FROM_RECORDER,
 )
@@ -654,3 +657,184 @@ class TestFlushRollback:
             # Restore a working _flush so unload's final flush doesn't raise.
             coordinator._flush = AsyncMock()
             assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+class TestFlushHealth:
+    """Write-health tracking: counters, the Repairs issue and recovery."""
+
+    @staticmethod
+    async def _setup(hass: HomeAssistant, backend: MagicMock):
+        entry = _make_entry(hass)
+        with patch(
+            "custom_components.ha_recorder_ext.create_backend",
+            return_value=backend,
+        ):
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+        return entry.runtime_data
+
+    @staticmethod
+    async def _flush_with(coordinator, count: int = 1) -> None:
+        from custom_components.ha_recorder_ext import _StateSnapshot
+
+        for i in range(count):
+            coordinator._queue.put_nowait(
+                _StateSnapshot(f"sensor.t{i}", "1", {}, datetime.now(timezone.utc))
+            )
+        await coordinator._flush()
+
+    @staticmethod
+    def _issue(hass: HomeAssistant):
+        return ir.async_get(hass).async_get_issue(DOMAIN, ISSUE_RECORDING_FAILING)
+
+    async def test_all_snapshots_failing_counts_as_failed_flush(
+        self, hass: HomeAssistant
+    ) -> None:
+        backend = _mock_backend()
+        backend.get_or_create_entity.side_effect = RuntimeError("boom")
+        coordinator = await self._setup(hass, backend)
+
+        await self._flush_with(coordinator, count=2)
+
+        assert coordinator.consecutive_failed_flushes == 1
+        assert coordinator.failed_snapshots_total == 2
+        assert coordinator.last_error_type == "RuntimeError"
+        assert coordinator.last_error_at is not None
+        assert coordinator.last_successful_write is None
+        assert not coordinator.has_write_problem
+        assert self._issue(hass) is None
+
+    async def test_problem_and_issue_raised_at_threshold(
+        self, hass: HomeAssistant
+    ) -> None:
+        backend = _mock_backend()
+        backend.get_or_create_entity.side_effect = RuntimeError("boom")
+        coordinator = await self._setup(hass, backend)
+
+        for _ in range(FAILED_FLUSH_THRESHOLD):
+            await self._flush_with(coordinator)
+
+        assert coordinator.has_write_problem
+        issue = self._issue(hass)
+        assert issue is not None
+        assert issue.severity == ir.IssueSeverity.ERROR
+        assert issue.translation_placeholders == {"error_type": "RuntimeError"}
+
+    async def test_recovery_clears_problem_and_issue(
+        self, hass: HomeAssistant
+    ) -> None:
+        backend = _mock_backend()
+        backend.get_or_create_entity.side_effect = RuntimeError("boom")
+        coordinator = await self._setup(hass, backend)
+        for _ in range(FAILED_FLUSH_THRESHOLD):
+            await self._flush_with(coordinator)
+        assert coordinator.has_write_problem
+
+        backend.get_or_create_entity.side_effect = None
+        backend.get_or_create_entity.return_value = __import__("uuid").uuid4()
+        await self._flush_with(coordinator)
+
+        assert coordinator.consecutive_failed_flushes == 0
+        assert not coordinator.has_write_problem
+        assert coordinator.last_successful_write is not None
+        assert self._issue(hass) is None
+        # The last error stays visible after recovery, for post-mortems.
+        assert coordinator.last_error_type == "RuntimeError"
+
+    async def test_partial_failure_is_not_a_failed_flush(
+        self, hass: HomeAssistant
+    ) -> None:
+        """One bad entity must not keep the problem sensor on forever."""
+        backend = _mock_backend()
+        good_pk = __import__("uuid").uuid4()
+        backend.get_or_create_entity.side_effect = [good_pk, RuntimeError("bad")]
+        coordinator = await self._setup(hass, backend)
+
+        await self._flush_with(coordinator, count=2)
+
+        assert coordinator.consecutive_failed_flushes == 0
+        assert coordinator.failed_snapshots_total == 1
+        assert coordinator.last_successful_write is not None
+
+    async def test_begin_failure_counts_but_does_not_lose_snapshots(
+        self, hass: HomeAssistant
+    ) -> None:
+        backend = _mock_backend()
+        backend.begin.side_effect = OSError("db down")
+        coordinator = await self._setup(hass, backend)
+
+        await self._flush_with(coordinator, count=2)
+
+        assert coordinator.consecutive_failed_flushes == 1
+        assert coordinator.last_error_type == "OSError"
+        # Re-queued for the next cycle, so not (yet) lost.
+        assert coordinator.failed_snapshots_total == 0
+        assert coordinator.queue_size == 2
+
+    async def test_commit_failure_loses_the_whole_batch(
+        self, hass: HomeAssistant
+    ) -> None:
+        backend = _mock_backend()
+        backend.commit.side_effect = OSError("disk full")
+        coordinator = await self._setup(hass, backend)
+
+        await self._flush_with(coordinator, count=3)
+
+        assert coordinator.consecutive_failed_flushes == 1
+        assert coordinator.failed_snapshots_total == 3
+        assert coordinator.last_error_type == "OSError"
+        assert coordinator.last_successful_write is None
+
+    async def test_dropped_snapshots_are_counted(self, hass: HomeAssistant) -> None:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                CONF_DB_TYPE: DB_TYPE_SQLITE,
+                CONF_DB_PATH: "test.db",
+                CONF_EXCLUDE_DOMAINS: [],
+                CONF_EXCLUDE_ENTITIES: [],
+                CONF_EXCLUDE_ATTRIBUTES: [],
+            },
+            options={CONF_FLUSH_INTERVAL: 300, CONF_QUEUE_MAX_SIZE: 1},
+        )
+        entry.add_to_hass(hass)
+        with patch(
+            "custom_components.ha_recorder_ext.create_backend",
+            return_value=_mock_backend(),
+        ):
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+            coordinator = entry.runtime_data
+            from custom_components.ha_recorder_ext import _StateSnapshot
+
+            while not coordinator._queue.full():
+                coordinator._queue.put_nowait(
+                    _StateSnapshot("sensor.x", "1", {}, datetime.now(timezone.utc))
+                )
+            before = coordinator.dropped_snapshots_total
+
+            hass.states.async_set("sensor.extra", "42")
+            await hass.async_block_till_done()
+
+        assert coordinator.dropped_snapshots_total == before + 1
+
+    async def test_listeners_notified_after_flush(self, hass: HomeAssistant) -> None:
+        coordinator = await self._setup(hass, _mock_backend())
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+
+        await self._flush_with(coordinator)
+
+        listener.assert_called()
+
+    async def test_stop_clears_open_issue(self, hass: HomeAssistant) -> None:
+        backend = _mock_backend()
+        backend.get_or_create_entity.side_effect = RuntimeError("boom")
+        coordinator = await self._setup(hass, backend)
+        for _ in range(FAILED_FLUSH_THRESHOLD):
+            await self._flush_with(coordinator)
+        assert self._issue(hass) is not None
+
+        await coordinator.stop()
+
+        assert self._issue(hass) is None

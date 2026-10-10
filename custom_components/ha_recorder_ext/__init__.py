@@ -14,6 +14,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP, EVENT_STATE_CHANGED
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import issue_registry as ir
 
 from .const import (
     CONF_DB_HOST,
@@ -34,6 +35,8 @@ from .const import (
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_QUEUE_MAX_SIZE,
     DOMAIN,
+    FAILED_FLUSH_THRESHOLD,
+    ISSUE_RECORDING_FAILING,
     SERVICE_IMPORT_FROM_EXTERNAL_DB,
     SERVICE_IMPORT_FROM_RECORDER,
 )
@@ -288,6 +291,13 @@ class RecorderCoordinator:
         self._unsub_states: Callable[[], None] | None = None
         self._unsub_stop: Callable[[], None] | None = None
         self._last_flush: datetime | None = None
+        self._last_successful_write: datetime | None = None
+        self._consecutive_failed_flushes: int = 0
+        self._failed_snapshots_total: int = 0
+        self._dropped_snapshots_total: int = 0
+        self._last_error_type: str | None = None
+        self._last_error_at: datetime | None = None
+        self._issue_error_type: str | None = None
         self._is_importing: bool = False
         self._last_import_count: int | None = None
         self._listeners: set[Callable[[], None]] = set()
@@ -358,6 +368,38 @@ class RecorderCoordinator:
         return self._last_flush
 
     @property
+    def last_successful_write(self) -> datetime | None:
+        """Time of the last flush that committed at least one observation."""
+        return self._last_successful_write
+
+    @property
+    def consecutive_failed_flushes(self) -> int:
+        return self._consecutive_failed_flushes
+
+    @property
+    def failed_snapshots_total(self) -> int:
+        """Snapshots that could not be stored since startup (their data is lost)."""
+        return self._failed_snapshots_total
+
+    @property
+    def dropped_snapshots_total(self) -> int:
+        """Snapshots discarded since startup because the queue was full."""
+        return self._dropped_snapshots_total
+
+    @property
+    def last_error_type(self) -> str | None:
+        """Exception class name of the last write error (never the message)."""
+        return self._last_error_type
+
+    @property
+    def last_error_at(self) -> datetime | None:
+        return self._last_error_at
+
+    @property
+    def has_write_problem(self) -> bool:
+        return self._consecutive_failed_flushes >= FAILED_FLUSH_THRESHOLD
+
+    @property
     def flush_interval(self) -> int:
         return self._flush_interval
 
@@ -405,6 +447,7 @@ class RecorderCoordinator:
             try:
                 self._queue.put_nowait(snap)
             except asyncio.QueueFull:
+                self._dropped_snapshots_total += 1
                 _LOGGER.warning(
                     "Queue full during initial snapshot, skipping %s", state.entity_id
                 )
@@ -438,6 +481,7 @@ class RecorderCoordinator:
             self._flush_task = None
 
         await self._flush()
+        self._clear_write_issue()
         await self._backend.close()
 
     # ------------------------------------------------------------------
@@ -460,6 +504,7 @@ class RecorderCoordinator:
         try:
             self._queue.put_nowait(snap)
         except asyncio.QueueFull:
+            self._dropped_snapshots_total += 1
             _LOGGER.warning(
                 "Observation queue full, dropping state change for %s",
                 new_state.entity_id,
@@ -502,28 +547,37 @@ class RecorderCoordinator:
                 snapshots.append(self._queue.get_nowait())
             except asyncio.QueueEmpty:
                 break
+        if not snapshots:
+            return
 
         try:
             await self._backend.begin()
-        except Exception:
+        except Exception as err:
             _LOGGER.exception(
                 "Flush begin() failed; re-queueing %d snapshot(s) for the next cycle",
                 len(snapshots),
             )
             self._requeue(snapshots)
+            self._record_flush_failure(err)
             return
 
         failed = 0
+        last_error: Exception | None = None
         for snap in snapshots:
             try:
                 await self._process_snapshot(snap)
-            except Exception:
+            except Exception as err:
                 failed += 1
+                last_error = err
                 _LOGGER.exception("Failed to process snapshot for %s", snap.entity_id)
+
+        committed = False
         try:
             await self._backend.commit()
+            committed = True
             self._last_flush = datetime.now(timezone.utc)
-        except Exception:
+        except Exception as err:
+            last_error = err
             _LOGGER.exception("Flush commit failed, attempting rollback")
             try:
                 await self._backend.rollback()
@@ -537,6 +591,55 @@ class RecorderCoordinator:
                 len(snapshots),
             )
 
+        # A rolled-back batch is lost in full, not just its failed snapshots.
+        self._failed_snapshots_total += failed if committed else len(snapshots)
+
+        # A flush counts as failed only when nothing was stored. A few bad
+        # snapshots (e.g. one entity whose value the database rejects) must
+        # not keep the problem sensor on forever; they show up in
+        # failed_snapshots_total instead.
+        if not committed or failed == len(snapshots):
+            self._record_flush_failure(last_error)
+        else:
+            self._record_flush_success()
+
+    def _record_flush_failure(self, err: Exception | None) -> None:
+        self._consecutive_failed_flushes += 1
+        self._last_error_type = type(err).__name__ if err is not None else "unknown"
+        self._last_error_at = datetime.now(timezone.utc)
+        self._async_update_health()
+
+    def _record_flush_success(self) -> None:
+        self._consecutive_failed_flushes = 0
+        self._last_successful_write = datetime.now(timezone.utc)
+        self._async_update_health()
+
+    @callback
+    def _async_update_health(self) -> None:
+        """Sync the Repairs issue with the write health, then refresh entities."""
+        if self.has_write_problem:
+            # Re-create only on transition or when the error type changes, so
+            # the issue text keeps pointing at the current failure.
+            if self._issue_error_type != self._last_error_type:
+                ir.async_create_issue(
+                    self._hass,
+                    DOMAIN,
+                    ISSUE_RECORDING_FAILING,
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.ERROR,
+                    translation_key=ISSUE_RECORDING_FAILING,
+                    translation_placeholders={"error_type": self._last_error_type},
+                )
+                self._issue_error_type = self._last_error_type
+        else:
+            self._clear_write_issue()
+        self._async_notify_listeners()
+
+    def _clear_write_issue(self) -> None:
+        if self._issue_error_type is not None:
+            ir.async_delete_issue(self._hass, DOMAIN, ISSUE_RECORDING_FAILING)
+            self._issue_error_type = None
+
     def _requeue(self, snapshots: list[_StateSnapshot]) -> None:
         """Put snapshots back on the queue after a failed flush, dropping any that don't fit."""
         dropped = 0
@@ -546,6 +649,7 @@ class RecorderCoordinator:
             except asyncio.QueueFull:
                 dropped += 1
         if dropped:
+            self._dropped_snapshots_total += dropped
             _LOGGER.warning(
                 "Observation queue full while re-queueing after a failed flush, "
                 "dropped %d snapshot(s)",

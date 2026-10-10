@@ -4,7 +4,9 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ha_recorder_ext import RecorderCoordinator
@@ -13,10 +15,12 @@ from custom_components.ha_recorder_ext.const import (
     CONF_DB_TYPE,
     DB_TYPE_SQLITE,
     DOMAIN,
+    FAILED_FLUSH_THRESHOLD,
 )
 
 _ENTITY_RECORDING = "binary_sensor.ha_external_recorder_recording"
 _ENTITY_IMPORT = "binary_sensor.ha_external_recorder_import_in_progress"
+_ENTITY_PROBLEM = "binary_sensor.ha_external_recorder_recording_problem"
 
 
 def _make_entry(hass: HomeAssistant) -> MockConfigEntry:
@@ -133,3 +137,85 @@ class TestImportProgressSensor:
 
         attrs = hass.states.get(_ENTITY_IMPORT).attributes
         assert "last_import_intervals_inserted" not in attrs
+
+
+class TestRecordingProblemSensor:
+    @staticmethod
+    async def _fail_flushes(coordinator: RecorderCoordinator, times: int) -> None:
+        from datetime import datetime, timezone
+
+        from custom_components.ha_recorder_ext import _StateSnapshot
+
+        coordinator.backend.get_or_create_entity.side_effect = RuntimeError("boom")
+        for _ in range(times):
+            coordinator._queue.put_nowait(
+                _StateSnapshot("sensor.t", "1", {}, datetime.now(timezone.utc))
+            )
+            await coordinator._flush()
+
+    async def test_entity_created_and_off_initially(self, hass: HomeAssistant) -> None:
+        entry = _make_entry(hass)
+        await _setup(hass, entry)
+        state = hass.states.get(_ENTITY_PROBLEM)
+        assert state is not None
+        assert state.state == "off"
+        assert state.attributes["device_class"] == "problem"
+
+    async def test_is_diagnostic_entity(self, hass: HomeAssistant) -> None:
+        entry = _make_entry(hass)
+        await _setup(hass, entry)
+        reg_entry = er.async_get(hass).async_get(_ENTITY_PROBLEM)
+        assert reg_entry is not None
+        assert reg_entry.entity_category == EntityCategory.DIAGNOSTIC
+
+    async def test_stays_off_below_threshold(self, hass: HomeAssistant) -> None:
+        entry = _make_entry(hass)
+        await _setup(hass, entry)
+        coordinator: RecorderCoordinator = entry.runtime_data
+
+        await self._fail_flushes(coordinator, FAILED_FLUSH_THRESHOLD - 1)
+        await hass.async_block_till_done()
+
+        state = hass.states.get(_ENTITY_PROBLEM)
+        assert state.state == "off"
+        assert state.attributes["consecutive_failed_flushes"] == FAILED_FLUSH_THRESHOLD - 1
+
+    async def test_turns_on_at_threshold_with_attributes(
+        self, hass: HomeAssistant
+    ) -> None:
+        entry = _make_entry(hass)
+        await _setup(hass, entry)
+        coordinator: RecorderCoordinator = entry.runtime_data
+
+        await self._fail_flushes(coordinator, FAILED_FLUSH_THRESHOLD)
+        await hass.async_block_till_done()
+
+        state = hass.states.get(_ENTITY_PROBLEM)
+        assert state.state == "on"
+        attrs = state.attributes
+        assert attrs["last_error_type"] == "RuntimeError"
+        assert attrs["failed_snapshots_total"] == FAILED_FLUSH_THRESHOLD
+        assert attrs["last_error_at"] is not None
+        assert attrs["last_successful_write"] is None
+
+    async def test_turns_off_after_successful_flush(self, hass: HomeAssistant) -> None:
+        from datetime import datetime, timezone
+
+        from custom_components.ha_recorder_ext import _StateSnapshot
+
+        entry = _make_entry(hass)
+        await _setup(hass, entry)
+        coordinator: RecorderCoordinator = entry.runtime_data
+        await self._fail_flushes(coordinator, FAILED_FLUSH_THRESHOLD)
+
+        coordinator.backend.get_or_create_entity.side_effect = None
+        coordinator.backend.get_or_create_entity.return_value = uuid.uuid4()
+        coordinator._queue.put_nowait(
+            _StateSnapshot("sensor.t", "1", {}, datetime.now(timezone.utc))
+        )
+        await coordinator._flush()
+        await hass.async_block_till_done()
+
+        state = hass.states.get(_ENTITY_PROBLEM)
+        assert state.state == "off"
+        assert state.attributes["last_successful_write"] is not None

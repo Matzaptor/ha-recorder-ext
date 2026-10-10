@@ -41,6 +41,12 @@ CONF_QUEUE_MAX_SIZE = "queue_max_size"
 DEFAULT_FLUSH_INTERVAL = 30       # seconds
 DEFAULT_QUEUE_MAX_SIZE = 10_000   # max buffered snapshots before dropping
 
+# Write health: this many consecutive failed flushes raise the "Recording
+# problem" sensor and the Repairs issue. At the default 30 s flush interval
+# that is roughly 90 s of continuous write errors.
+FAILED_FLUSH_THRESHOLD = 3
+ISSUE_RECORDING_FAILING = "recording_failing"
+
 # Services
 SERVICE_IMPORT_FROM_RECORDER = "import_from_recorder"
 SERVICE_IMPORT_FROM_EXTERNAL_DB = "import_from_external_db"
