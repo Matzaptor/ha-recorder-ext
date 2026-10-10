@@ -95,5 +95,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "recording_failing": {
+      "title": "Observations cannot be written to the database",
+      "description": "Several consecutive attempts to write observations to the database failed (last error: {error_type}). No new data is being stored; observations are buffered in memory and discarded once the queue is full. Check that the database is reachable and has free space, and look at the Home Assistant logs for details. This issue is removed automatically once writes succeed again."
+    }
   }
 }

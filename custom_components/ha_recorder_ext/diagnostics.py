@@ -49,5 +49,20 @@ async def async_get_config_entry_diagnostics(
                 if coordinator.last_flush is not None
                 else None
             ),
+            "last_successful_write": (
+                coordinator.last_successful_write.isoformat()
+                if coordinator.last_successful_write is not None
+                else None
+            ),
+            "has_write_problem": coordinator.has_write_problem,
+            "consecutive_failed_flushes": coordinator.consecutive_failed_flushes,
+            "failed_snapshots_total": coordinator.failed_snapshots_total,
+            "dropped_snapshots_total": coordinator.dropped_snapshots_total,
+            "last_error_type": coordinator.last_error_type,
+            "last_error_at": (
+                coordinator.last_error_at.isoformat()
+                if coordinator.last_error_at is not None
+                else None
+            ),
         },
     }

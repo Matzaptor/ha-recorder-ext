@@ -148,3 +148,44 @@ async def test_diagnostics_last_flush_set_after_flush(hass: HomeAssistant) -> No
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
     assert diag["coordinator"]["last_flush"] == _TS.isoformat()
+
+
+async def test_diagnostics_write_health_defaults(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    with patch(
+        "custom_components.ha_recorder_ext.create_backend",
+        return_value=_mock_backend(),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    coordinator = (await async_get_config_entry_diagnostics(hass, entry))["coordinator"]
+
+    assert coordinator["has_write_problem"] is False
+    assert coordinator["consecutive_failed_flushes"] == 0
+    assert coordinator["failed_snapshots_total"] == 0
+    assert coordinator["dropped_snapshots_total"] == 0
+    assert coordinator["last_error_type"] is None
+    assert coordinator["last_error_at"] is None
+    assert coordinator["last_successful_write"] is None
+
+
+async def test_diagnostics_reports_write_failures(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    with patch(
+        "custom_components.ha_recorder_ext.create_backend",
+        return_value=_mock_backend(),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        coordinator = entry.runtime_data
+        coordinator._record_flush_failure(OSError("disk full"))
+
+    diag = (await async_get_config_entry_diagnostics(hass, entry))["coordinator"]
+
+    assert diag["consecutive_failed_flushes"] == 1
+    assert diag["last_error_type"] == "OSError"
+    assert diag["last_error_at"] is not None
+    # Only the exception class is exposed, never its message.
+    assert "disk full" not in str(diag)

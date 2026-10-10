@@ -20,7 +20,7 @@ rules:
   integration-owner: done
   parallel-updates: exempt         # no entities or platforms
   reconfiguration-flow: done
-  repair-issues: exempt            # no repairable issues defined yet
+  repair-issues: done              # recording_failing: raised after repeated failed flushes
   stale-devices: exempt            # no devices
 
   # Gold
@@ -29,8 +29,8 @@ rules:
   discovery-update-info: exempt    # no discovery
   docs-configuration-parameters: done
   docs-known-limitations: done
-  entity-category: exempt          # no entities
-  entity-device-class: exempt      # no entities
+  entity-category: done            # Recording problem sensor is a diagnostic entity
+  entity-device-class: done        # Recording problem sensor uses the problem device class
   entity-disabled-by-default: exempt  # no entities
   entity-translations: exempt      # no entities
   exception-translations: done
