@@ -326,7 +326,11 @@ class TestImportServices:
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
+        # The first user created on a fresh auth store becomes the owner (and
+        # therefore an administrator), so create a throwaway owner first.
+        await hass.auth.async_create_user("Owner", group_ids=[GROUP_ID_ADMIN])
         user = await hass.auth.async_create_user("Regular user", group_ids=[GROUP_ID_USER])
+        assert not user.is_admin
         with pytest.raises(Unauthorized):
             await hass.services.async_call(
                 DOMAIN, service, data, blocking=True, context=Context(user_id=user.id)
