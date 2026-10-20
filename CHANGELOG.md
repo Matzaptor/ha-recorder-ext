@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.5.1] — 2026-10-20
+
+### Security
+
+- **The two import services were callable by any Home Assistant user, not only administrators.**
+  `import_from_recorder` and `import_from_external_db` were registered with
+  `hass.services.async_register`. Because `import_from_external_db` accepts an arbitrary
+  `db_path` or database host and credentials from the caller, a non-admin user could make Home
+  Assistant open files on disk and connect to hosts of their choosing. Both services are now
+  registered with `async_register_admin_service`, which rejects non-admin users with
+  `Unauthorized`. Calls without a user context (automations, scripts, the system itself) are
+  unaffected, as for every admin-only Home Assistant service. Added tests for the rejected
+  non-admin and allowed admin cases, and a note in the README's Security section. Reported
+  during the `hacs/default` submission review (hacs/default#9357); closes #74.
+
+---
+
 ## [2.5.0] — 2026-10-10
 
 ### Added

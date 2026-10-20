@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.auth.const import GROUP_ID_ADMIN, GROUP_ID_USER
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -307,6 +308,63 @@ class TestImportServices:
         assert await hass.config_entries.async_unload(entry.entry_id)
         assert not hass.services.has_service(DOMAIN, SERVICE_IMPORT_FROM_RECORDER)
         assert not hass.services.has_service(DOMAIN, SERVICE_IMPORT_FROM_EXTERNAL_DB)
+
+    @pytest.mark.parametrize(
+        ("service", "data"),
+        [
+            (SERVICE_IMPORT_FROM_RECORDER, {}),
+            (
+                SERVICE_IMPORT_FROM_EXTERNAL_DB,
+                {CONF_DB_TYPE: DB_TYPE_SQLITE, CONF_DB_PATH: "/etc/passwd"},
+            ),
+        ],
+    )
+    async def test_import_services_reject_non_admin_user(
+        self, hass: HomeAssistant, patched_factory, service: str, data: dict
+    ) -> None:
+        entry = _make_entry(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        # The first user created on a fresh auth store becomes the owner (and
+        # therefore an administrator), so create a throwaway owner first.
+        await hass.auth.async_create_user("Owner", group_ids=[GROUP_ID_ADMIN])
+        user = await hass.auth.async_create_user("Regular user", group_ids=[GROUP_ID_USER])
+        assert not user.is_admin
+        with pytest.raises(Unauthorized):
+            await hass.services.async_call(
+                DOMAIN, service, data, blocking=True, context=Context(user_id=user.id)
+            )
+        assert not entry.runtime_data.is_importing
+
+    @pytest.mark.parametrize(
+        ("service", "data"),
+        [
+            (SERVICE_IMPORT_FROM_RECORDER, {}),
+            (
+                SERVICE_IMPORT_FROM_EXTERNAL_DB,
+                {CONF_DB_TYPE: DB_TYPE_SQLITE},
+            ),
+        ],
+    )
+    async def test_import_services_allow_admin_user(
+        self, hass: HomeAssistant, patched_factory, service: str, data: dict
+    ) -> None:
+        entry = _make_entry(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        admin = await hass.auth.async_create_user("Admin", group_ids=[GROUP_ID_ADMIN])
+        try:
+            await hass.services.async_call(
+                DOMAIN, service, data, blocking=True, context=Context(user_id=admin.id)
+            )
+        except ServiceValidationError:
+            # The external-DB call has no db_path, so the handler's own
+            # validation rejects it. Reaching that validation at all proves
+            # the admin check let the call through.
+            assert service == SERVICE_IMPORT_FROM_EXTERNAL_DB
+        await hass.async_block_till_done()
 
     async def test_import_from_external_db_missing_server_fields_raises(
         self, hass: HomeAssistant, patched_factory

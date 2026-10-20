@@ -15,6 +15,7 @@ from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.service import async_register_admin_service
 
 from .const import (
     CONF_DB_HOST,
@@ -161,7 +162,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.async_create_task(_run())
 
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_IMPORT_FROM_RECORDER,
         _handle_import,
@@ -249,7 +251,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.async_create_task(_run())
 
-    hass.services.async_register(
+    # Admin-only: this service takes an arbitrary file path or database
+    # host/credentials from the caller, so it must not be callable by regular users.
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_IMPORT_FROM_EXTERNAL_DB,
         _handle_import_external,
