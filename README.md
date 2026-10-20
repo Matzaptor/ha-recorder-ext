@@ -336,3 +336,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming conventions, commit mes
 ## Security
 
 The integration runs entirely inside the Home Assistant process and stores data locally. No data is sent outside your local network. Do not commit database files, `.env` files, or HA tokens to version control.
+
+The `import_from_recorder` and `import_from_external_db` services require an administrator: they can read arbitrary database files and connect to arbitrary hosts, so Home Assistant rejects calls made by non-admin users. Automations and scripts are not affected.
