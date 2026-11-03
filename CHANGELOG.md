@@ -20,6 +20,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The attributes that remain only change when something actually happens (a write failure, or
   an options change).
 
+### Removed
+
+- Leftover `custom_components/ha_recorder_ext/icon.png`, an identical copy of
+  `brand/icon.png`. Home Assistant only reads the icon under `brand/`.
+
 ---
 
 ## [2.5.1] — 2026-10-20
