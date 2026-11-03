@@ -17,6 +17,11 @@ on:
     branches:
       - master
       - "dev/**"
+  # Weekly run against the latest releases of the unpinned dependencies, so an
+  # upstream release that breaks the integration is caught even when the
+  # repository itself has not changed.
+  schedule:
+    - cron: "0 5 * * 1"
 
 jobs:
   test:
