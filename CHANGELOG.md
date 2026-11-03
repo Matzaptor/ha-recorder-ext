@@ -7,6 +7,30 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+---
+
+## [2.5.2] — 2026-11-03
+
+### Fixed
+
+- **The *Recording* and *Recording problem* sensors wrote a new state to Home Assistant's own
+  recorder on every flush.** Their attributes included values that change at each flush cycle
+  (`queue_size`, `last_flush`, `last_successful_write`), so every flush (every 30 s by default,
+  about 2,880 times a day) produced a `state_changed` event and a new row in the native
+  recorder, even though the sensors' on/off state never changed. These three attributes were
+  removed from the entities; the same values are still available in the diagnostics download.
+  The attributes that remain only change when something actually happens (a write failure, or
+  an options change).
+
+### Removed
+
+- Leftover `custom_components/ha_recorder_ext/icon.png`, an identical copy of
+  `brand/icon.png`. Home Assistant only reads the icon under `brand/`.
+
+---
+
 ## [2.5.1] — 2026-10-20
 
 ### Security
@@ -619,6 +643,10 @@ A second import service, `import_from_external_db`, brings in history from an ex
 ---
 
 ## [Unreleased]
+
+---
+
+## [2.5.2] — 2026-11-03
 
 ---
 

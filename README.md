@@ -170,9 +170,11 @@ The integration creates three binary sensors alongside the config entry.
 
 | Entity | On when | Attributes |
 |---|---|---|
-| **Recording** | The background flush loop is running | `queue_size`, `last_flush`, `flush_interval_seconds` |
+| **Recording** | The background flush loop is running | `flush_interval_seconds` |
 | **Import in progress** | An `import_from_recorder` or `import_from_external_db` service call is currently running | `last_import_intervals_inserted` (once at least one import has completed) |
-| **Recording problem** | Writing to the database has failed for the configured number of consecutive flushes, 3 by default (diagnostic entity, `problem` device class) | `consecutive_failed_flushes`, `failed_snapshots_total`, `dropped_snapshots_total`, `last_error_type`, `last_error_at`, `last_successful_write`, `queue_size` |
+| **Recording problem** | Writing to the database has failed for the configured number of consecutive flushes, 3 by default (diagnostic entity, `problem` device class) | `consecutive_failed_flushes`, `failed_snapshots_total`, `dropped_snapshots_total`, `last_error_type`, `last_error_at` |
+
+The entities only expose attributes that are stable between flushes. Values that change on every flush (`queue_size`, `last_flush`, `last_successful_write`) are deliberately not entity attributes: each attribute change is a `state_changed` event that Home Assistant's own recorder would store as a new row. Read them from the [diagnostics](#diagnostics) download instead.
 
 **Recording** only tells you the flush loop is alive, not that data is being stored. Use **Recording problem** to be alerted when the database is unreachable or rejecting writes.
 

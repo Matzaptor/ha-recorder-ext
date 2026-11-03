@@ -64,10 +64,12 @@ class TestRecordingActiveSensor:
         await _setup(hass, entry)
         assert hass.states.get(_ENTITY_RECORDING).state == "on"
 
-    async def test_has_queue_size_attribute(self, hass: HomeAssistant) -> None:
+    async def test_has_no_volatile_attributes(self, hass: HomeAssistant) -> None:
         entry = _make_entry(hass)
         await _setup(hass, entry)
-        assert "queue_size" in hass.states.get(_ENTITY_RECORDING).attributes
+        attrs = hass.states.get(_ENTITY_RECORDING).attributes
+        assert "queue_size" not in attrs
+        assert "last_flush" not in attrs
 
     async def test_has_flush_interval_attribute(self, hass: HomeAssistant) -> None:
         entry = _make_entry(hass)
@@ -196,7 +198,8 @@ class TestRecordingProblemSensor:
         assert attrs["last_error_type"] == "RuntimeError"
         assert attrs["failed_snapshots_total"] == DEFAULT_FAILED_FLUSH_THRESHOLD
         assert attrs["last_error_at"] is not None
-        assert attrs["last_successful_write"] is None
+        assert "last_successful_write" not in attrs
+        assert "queue_size" not in attrs
 
     async def test_turns_off_after_successful_flush(self, hass: HomeAssistant) -> None:
         from datetime import datetime, timezone
@@ -218,4 +221,45 @@ class TestRecordingProblemSensor:
 
         state = hass.states.get(_ENTITY_PROBLEM)
         assert state.state == "off"
-        assert state.attributes["last_successful_write"] is not None
+        assert state.attributes["consecutive_failed_flushes"] == 0
+        assert coordinator.last_successful_write is not None
+
+
+class TestNoStateChurn:
+    """Healthy flushes must not make the sensors emit state_changed events.
+
+    Home Assistant's own recorder stores one row per state_changed event, so a
+    sensor whose attributes change on every flush costs thousands of rows/day.
+    """
+
+    async def test_healthy_flushes_do_not_change_sensor_states(
+        self, hass: HomeAssistant
+    ) -> None:
+        from datetime import datetime, timezone
+
+        from homeassistant.const import EVENT_STATE_CHANGED
+
+        from custom_components.ha_recorder_ext import _StateSnapshot
+
+        entry = _make_entry(hass)
+        await _setup(hass, entry)
+        coordinator: RecorderCoordinator = entry.runtime_data
+
+        own_entities = {_ENTITY_RECORDING, _ENTITY_PROBLEM, _ENTITY_IMPORT}
+        changed: list[str] = []
+        hass.bus.async_listen(
+            EVENT_STATE_CHANGED,
+            lambda event: changed.append(event.data["entity_id"])
+            if event.data["entity_id"] in own_entities
+            else None,
+        )
+
+        for i in range(5):
+            coordinator._queue.put_nowait(
+                _StateSnapshot("sensor.t", str(i), {}, datetime.now(timezone.utc))
+            )
+            await coordinator._flush()
+            await hass.async_block_till_done()
+
+        assert coordinator.last_successful_write is not None
+        assert changed == []

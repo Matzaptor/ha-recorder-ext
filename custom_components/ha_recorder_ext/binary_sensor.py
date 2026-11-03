@@ -70,15 +70,11 @@ class RecordingActiveSensor(_CoordinatorBinarySensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        return {
-            "queue_size": self._coordinator.queue_size,
-            "last_flush": (
-                self._coordinator.last_flush.isoformat()
-                if self._coordinator.last_flush
-                else None
-            ),
-            "flush_interval_seconds": self._coordinator.flush_interval,
-        }
+        # Only attributes that are stable between flushes belong here: every
+        # attribute change produces a state_changed event, which Home
+        # Assistant's own recorder stores as a new row. Volatile values
+        # (queue size, last flush time) are available via diagnostics.
+        return {"flush_interval_seconds": self._coordinator.flush_interval}
 
 
 class ImportProgressSensor(_CoordinatorBinarySensor):
@@ -119,6 +115,11 @@ class RecordingProblemSensor(_CoordinatorBinarySensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
+        # Only attributes that change when something goes wrong are exposed
+        # here. ``last_successful_write`` and ``queue_size`` change on every
+        # flush and would make this entity write a new state (and a new row in
+        # Home Assistant's recorder) every flush interval; they are available
+        # via diagnostics instead.
         c = self._coordinator
         return {
             "consecutive_failed_flushes": c.consecutive_failed_flushes,
@@ -126,8 +127,4 @@ class RecordingProblemSensor(_CoordinatorBinarySensor):
             "dropped_snapshots_total": c.dropped_snapshots_total,
             "last_error_type": c.last_error_type,
             "last_error_at": c.last_error_at.isoformat() if c.last_error_at else None,
-            "last_successful_write": (
-                c.last_successful_write.isoformat() if c.last_successful_write else None
-            ),
-            "queue_size": c.queue_size,
         }
