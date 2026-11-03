@@ -7,6 +7,21 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **The *Recording* and *Recording problem* sensors wrote a new state to Home Assistant's own
+  recorder on every flush.** Their attributes included values that change at each flush cycle
+  (`queue_size`, `last_flush`, `last_successful_write`), so every flush (every 30 s by default,
+  about 2,880 times a day) produced a `state_changed` event and a new row in the native
+  recorder, even though the sensors' on/off state never changed. These three attributes were
+  removed from the entities; the same values are still available in the diagnostics download.
+  The attributes that remain only change when something actually happens (a write failure, or
+  an options change).
+
+---
+
 ## [2.5.1] — 2026-10-20
 
 ### Security
