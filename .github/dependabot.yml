@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Keeps the GitHub Actions used by the workflows up to date, including the
+  # SHA-pinned ones in hacs-validate.yml (Dependabot rewrites the SHA and the
+  # trailing version comment together).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
