@@ -9,6 +9,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+---
+
+## [2.5.2] — 2026-11-03
+
 ### Fixed
 
 - **The *Recording* and *Recording problem* sensors wrote a new state to Home Assistant's own
@@ -639,6 +643,10 @@ A second import service, `import_from_external_db`, brings in history from an ex
 ---
 
 ## [Unreleased]
+
+---
+
+## [2.5.2] — 2026-11-03
 
 ---
 
